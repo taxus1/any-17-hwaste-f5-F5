@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.github.pagehelper.PageHelper;
 import com.somepro.common.exception.BizException;
+import com.somepro.domain.hwaste.model.ManifestSignoff;
 import com.somepro.domain.hwaste.model.ManifestStatus;
+import com.somepro.domain.hwaste.model.StockStatus;
 import com.somepro.domain.hwaste.model.TransferManifest;
 import com.somepro.domain.hwaste.repository.TransferManifestRepository;
 import com.somepro.domain.shared.model.PageResult;
@@ -13,6 +15,7 @@ import com.somepro.infrastructure.persistence.base.BaseBlockingRepository;
 import com.somepro.infrastructure.persistence.hwaste.converter.TransferManifestPoConverter;
 import com.somepro.infrastructure.persistence.hwaste.po.ManifestSignoffPO;
 import com.somepro.infrastructure.persistence.hwaste.po.TransferManifestPO;
+import com.somepro.infrastructure.persistence.hwaste.po.WasteStockPO;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -32,6 +35,9 @@ import java.util.stream.Collectors;
  * 更新 0 行说明已被别人推过状态，后到的请求直接拒掉。
  * 签收是一个事务：联单条件置签收 → 处置单位累计接收加码（许可余量硬闸）→ 写签收留痕；
  * 并发重复签收时后到的联单更新 0 行，整事务回滚，处置单位不会跟着重复加码。
+ * 处置确认也是一个事务：联单条件置已处置 → 签收单补齐处置重量 / 方式 / 确认时刻 →
+ * 这趟货占用的在库批次核销成已处置；并发重复确认时后到的更新 0 行，整事务回滚，
+ * 同一张联单确认不了两回，批次也不会被重复核销。
  */
 @Repository
 public class TransferManifestRepositoryImpl extends BaseBlockingRepository implements TransferManifestRepository {
@@ -39,17 +45,20 @@ public class TransferManifestRepositoryImpl extends BaseBlockingRepository imple
     private final TransferManifestMapper transferManifestMapper;
     private final TreatmentUnitMapper treatmentUnitMapper;
     private final ManifestSignoffMapper manifestSignoffMapper;
+    private final WasteStockMapper wasteStockMapper;
     private final BizNoService bizNoService;
     private final TransactionTemplate txTemplate;
 
     public TransferManifestRepositoryImpl(TransferManifestMapper transferManifestMapper,
                                           TreatmentUnitMapper treatmentUnitMapper,
                                           ManifestSignoffMapper manifestSignoffMapper,
+                                          WasteStockMapper wasteStockMapper,
                                           BizNoService bizNoService,
                                           PlatformTransactionManager transactionManager) {
         this.transferManifestMapper = transferManifestMapper;
         this.treatmentUnitMapper = treatmentUnitMapper;
         this.manifestSignoffMapper = manifestSignoffMapper;
+        this.wasteStockMapper = wasteStockMapper;
         this.bizNoService = bizNoService;
         this.txTemplate = new TransactionTemplate(transactionManager);
     }
@@ -144,6 +153,42 @@ public class TransferManifestRepositoryImpl extends BaseBlockingRepository imple
                 manifestSignoffMapper.insert(signoff);
                 return null;
             });
+            return TransferManifestPoConverter.toDomain(transferManifestMapper.selectById(manifest.getId()));
+        }));
+    }
+
+    @Override
+    public Mono<TransferManifest> confirmDisposal(TransferManifest manifest, ManifestSignoff signoff) {
+        return blocking(() -> txTemplate.execute(tx -> {
+            // 1. 联单条件置已处置：只有 RECEIVED 推得动；手快重复确认时后到的更新 0 行，
+            //    整事务回滚，同一张联单确认不了两回
+            TransferManifestPO patch = new TransferManifestPO();
+            patch.setStatus(ManifestStatus.DISPOSED.name());
+            int rows = transferManifestMapper.update(patch, Wrappers.<TransferManifestPO>lambdaUpdate()
+                    .eq(TransferManifestPO::getId, manifest.getId())
+                    .eq(TransferManifestPO::getStatus, ManifestStatus.RECEIVED.name()));
+            if (rows == 0) {
+                throw new BizException("联单不在已签收状态，不能确认处置");
+            }
+            // 2. 签收单补齐处置信息：只认还没确认过的（confirm_at 仍空），
+            //    已确认过的更新 0 行，整事务回滚
+            ManifestSignoffPO signoffPatch = new ManifestSignoffPO();
+            signoffPatch.setDisposedWeight(signoff.getDisposedWeight());
+            signoffPatch.setDisposalMethod(signoff.getDisposalMethod());
+            signoffPatch.setConfirmAt(signoff.getConfirmAt());
+            int confirmed = manifestSignoffMapper.update(signoffPatch, Wrappers.<ManifestSignoffPO>lambdaUpdate()
+                    .eq(ManifestSignoffPO::getId, signoff.getId())
+                    .isNull(ManifestSignoffPO::getConfirmAt));
+            if (confirmed == 0) {
+                throw new BizException("该联单已确认过处置，不能重复确认");
+            }
+            // 3. 库存核销：这趟货当初挪出来的在库批次（manifest_id 挂着本联单、仍在库）置 DISPOSED，
+            //    别再当成还压在库里；已核销过的批次条件不匹配，天然幂等，没有占用批次也没什么可动
+            WasteStockPO writeOff = new WasteStockPO();
+            writeOff.setStatus(StockStatus.DISPOSED.name());
+            wasteStockMapper.update(writeOff, Wrappers.<WasteStockPO>lambdaUpdate()
+                    .eq(WasteStockPO::getManifestId, manifest.getId())
+                    .eq(WasteStockPO::getStatus, StockStatus.IN_STOCK.name()));
             return TransferManifestPoConverter.toDomain(transferManifestMapper.selectById(manifest.getId()));
         }));
     }

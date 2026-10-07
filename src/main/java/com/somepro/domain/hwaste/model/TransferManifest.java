@@ -24,6 +24,8 @@ import java.time.LocalDateTime;
  *   被退回、已走完的单子启不动。
  * - 签收只认在途：IN_TRANSIT 才能签收（→ RECEIVED，记下签收时刻）；签收重量认
  *   实际过磅的数，不拿申报量硬顶。处置单位的许可余量由应用层与仓储条件更新双道把关。
+ * - 处置确认只认已签收：RECEIVED 才能确认（→ DISPOSED）；还没签收、退回掉的办不了，
+ *   同一张联单也别来回确认两回。
  */
 @Getter
 @Setter
@@ -141,6 +143,15 @@ public class TransferManifest extends BaseEntity {
         }
         this.status = ManifestStatus.RECEIVED;
         this.receiveAt = LocalDateTime.now();
+    }
+
+    /**
+     * 处置确认：已签收 → 已处置。货在处置设施里真正处理掉才算走到头；
+     * 还没签收、被退回、已作废的单子办不了，确认过的也回不到这步。
+     */
+    public void dispose() {
+        require(status == ManifestStatus.RECEIVED, "只有已签收的联单才能确认处置");
+        this.status = ManifestStatus.DISPOSED;
     }
 
     private static void require(boolean ok, String message) {

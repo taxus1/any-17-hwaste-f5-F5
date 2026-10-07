@@ -1,5 +1,6 @@
 package com.somepro.domain.hwaste.repository;
 
+import com.somepro.domain.hwaste.model.ManifestSignoff;
 import com.somepro.domain.hwaste.model.TransferManifest;
 import com.somepro.domain.shared.model.PageResult;
 import reactor.core.publisher.Mono;
@@ -43,6 +44,14 @@ public interface TransferManifestRepository {
      * 并发重复签收时后到的联单更新 0 行，整事务回滚，处置单位不会重复加码。
      */
     Mono<TransferManifest> receive(TransferManifest manifest, BigDecimal actualWeight);
+
+    /**
+     * 处置确认：已签收 → 已处置。一个事务里 —— 联单条件置 DISPOSED（只认 RECEIVED）、
+     * 签收单补上实际处置重量 / 处置方式 / 确认时刻（只认还没确认过的）、
+     * 这趟货占用的在库批次核销成 DISPOSED（别再当成还压在库里）。
+     * 并发重复确认时后到的条件更新 0 行，整事务回滚，同一张联单确认不了两回。
+     */
+    Mono<TransferManifest> confirmDisposal(TransferManifest manifest, ManifestSignoff signoff);
 
     /** 多条件分页：计划 / 单位 / 类别 / 处置单位 / 状态均可选，一个都不传则分页列全；每行带联单号。 */
     Mono<PageResult<TransferManifest>> page(int pageNum, int pageSize, Long planId, Long sourceId,

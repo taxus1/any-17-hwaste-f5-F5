@@ -6,7 +6,7 @@ package com.somepro.domain.hwaste.model;
  * 流转：新提交落 SUBMITTED；管事的审批要么批（→ APPROVED）要么退（→ REJECTED，
  * 退回必须写明理由），已批过、退过、已作废的不再来回审。
  * 批过的联启运（→ IN_TRANSIT，记下启运时刻）；在途的货到对方过磅签收（→ RECEIVED，
- * 记下签收时刻，重量认实收）。DISPOSED 由后续处置确认环节推进，这里先占位。
+ * 记下签收时刻，重量认实收）；签收进的货在处置设施里真正处理掉后处置确认（→ DISPOSED）。
  */
 public enum ManifestStatus {
 
