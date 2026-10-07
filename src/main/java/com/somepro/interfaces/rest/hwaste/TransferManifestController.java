@@ -15,7 +15,7 @@ import reactor.core.publisher.Mono;
 import java.math.BigDecimal;
 
 /**
- * 电子转移联单接口（用户接口层）：提交、审批、退回、详情与多条件翻页。
+ * 电子转移联单接口（用户接口层）：提交、审批、退回、启运、签收、详情与多条件翻页。
  *
  * 状态流转类接口的联单定位参数：manifestId 或 manifestNo 传其一即可。
  */
@@ -70,6 +70,28 @@ public class TransferManifestController {
     public Mono<Result<TransferManifestVO>> detail(@RequestParam(required = false) Long manifestId,
                                                    @RequestParam(required = false) String manifestNo) {
         return transferManifestAppService.detail(manifestId, manifestNo)
+                .map(TransferManifestVoConverter::toVo)
+                .map(Result::ok);
+    }
+
+    /** 启运：只有已审批的联单启得动；启运后落运输中 IN_TRANSIT 并记下启运时刻。 */
+    @PostMapping("/depart")
+    public Mono<Result<TransferManifestVO>> depart(@RequestParam(required = false) Long manifestId,
+                                                   @RequestParam(required = false) String manifestNo) {
+        return transferManifestAppService.depart(manifestId, manifestNo)
+                .map(TransferManifestVoConverter::toVo)
+                .map(Result::ok);
+    }
+
+    /**
+     * 签收：只有运输中的联单签得了；actualWeight 认实际过磅的数（不拿申报量硬顶），
+     * 签收后落已签收 RECEIVED 并记下签收时刻；处置单位许可余量不够不许签收。
+     */
+    @PostMapping("/receive")
+    public Mono<Result<TransferManifestVO>> receive(@RequestParam(required = false) Long manifestId,
+                                                    @RequestParam(required = false) String manifestNo,
+                                                    @RequestParam(required = false) BigDecimal actualWeight) {
+        return transferManifestAppService.receive(manifestId, manifestNo, actualWeight)
                 .map(TransferManifestVoConverter::toVo)
                 .map(Result::ok);
     }

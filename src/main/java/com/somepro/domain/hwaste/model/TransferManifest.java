@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 /**
  * 电子转移联单（聚合根，纯领域，无框架注解）。
@@ -19,6 +20,10 @@ import java.math.BigDecimal;
  * - 这趟量连同该计划下已开出去的联单量，加在一起不能盖过计划批复总量（额度不穿）。
  * - 审批只走一道：SUBMITTED 才能批（→ APPROVED）或退（→ REJECTED，必须写明理由）；
  *   已批过、退过、已作废的不再来回审。
+ * - 启运只认已审批：APPROVED 才能启运（→ IN_TRANSIT，记下启运时刻）；还在提交、
+ *   被退回、已走完的单子启不动。
+ * - 签收只认在途：IN_TRANSIT 才能签收（→ RECEIVED，记下签收时刻）；签收重量认
+ *   实际过磅的数，不拿申报量硬顶。处置单位的许可余量由应用层与仓储条件更新双道把关。
  */
 @Getter
 @Setter
@@ -47,6 +52,12 @@ public class TransferManifest extends BaseEntity {
 
     /** 是否跨省：提交时按供废 / 收货两头省份快照，1 是 / 0 否。 */
     private Integer crossProvince;
+
+    /** 启运时刻（车出厂门那一下，启运时落）。 */
+    private LocalDateTime transportBegin;
+
+    /** 签收时刻（对方那头过磅签收那一下，签收时落）。 */
+    private LocalDateTime receiveAt;
 
     private ManifestStatus status;
 
@@ -109,6 +120,27 @@ public class TransferManifest extends BaseEntity {
             throw new BizException("退回必须写明理由");
         }
         this.status = ManifestStatus.REJECTED;
+    }
+
+    /** 启运：已审批 → 运输中，记下启运时刻；还在提交、被退回、已走完的单子启不动。 */
+    public void depart() {
+        require(status == ManifestStatus.APPROVED, "只有已审批的联单才能启运");
+        this.status = ManifestStatus.IN_TRANSIT;
+        this.transportBegin = LocalDateTime.now();
+    }
+
+    /**
+     * 签收：运输中 → 已签收，记下签收时刻。
+     * 签收重量认实际过磅的那个数（actualWeight），跟申报量对不齐也照实收落账；
+     * 货还没出门（未启运）或已走完的单子签不了。
+     */
+    public void receive(BigDecimal actualWeight) {
+        require(status == ManifestStatus.IN_TRANSIT, "只有运输中的联单才能签收");
+        if (actualWeight == null || actualWeight.signum() <= 0) {
+            throw new BizException("签收重量必须大于 0");
+        }
+        this.status = ManifestStatus.RECEIVED;
+        this.receiveAt = LocalDateTime.now();
     }
 
     private static void require(boolean ok, String message) {

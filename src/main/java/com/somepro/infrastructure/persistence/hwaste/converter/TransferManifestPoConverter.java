@@ -24,6 +24,8 @@ public final class TransferManifestPoConverter {
         po.setTransporter(domain.getTransporter());
         po.setTransferWeight(domain.getTransferWeight());
         po.setCrossProvince(domain.getCrossProvince());
+        po.setTransportBegin(domain.getTransportBegin());
+        po.setReceiveAt(domain.getReceiveAt());
         po.setStatus(domain.getStatus() == null ? null : domain.getStatus().name());
         po.setDelFlag(domain.getDelFlag());
         po.setCreateBy(domain.getCreateBy());
@@ -44,6 +46,8 @@ public final class TransferManifestPoConverter {
         domain.setTransporter(po.getTransporter());
         domain.setTransferWeight(po.getTransferWeight());
         domain.setCrossProvince(po.getCrossProvince());
+        domain.setTransportBegin(po.getTransportBegin());
+        domain.setReceiveAt(po.getReceiveAt());
         domain.setStatus(po.getStatus() == null ? null : ManifestStatus.valueOf(po.getStatus()));
         domain.setDelFlag(po.getDelFlag());
         domain.setCreateBy(po.getCreateBy());

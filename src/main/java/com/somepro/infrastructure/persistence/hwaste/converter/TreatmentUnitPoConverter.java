@@ -18,6 +18,8 @@ public final class TreatmentUnitPoConverter {
         domain.setUnitNo(po.getUnitNo());
         domain.setName(po.getName());
         domain.setProvince(po.getProvince());
+        domain.setLicensedWeight(po.getLicensedWeight());
+        domain.setReceivedWeight(po.getReceivedWeight());
         domain.setDisposes(po.getDisposes());
         domain.setStatus(po.getStatus() == null ? null : UnitStatus.valueOf(po.getStatus()));
         return domain;

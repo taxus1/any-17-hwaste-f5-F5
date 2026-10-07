@@ -1,11 +1,15 @@
 package com.somepro.domain.hwaste.model;
 
+import com.somepro.common.exception.BizException;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.math.BigDecimal;
+
 /**
  * 处置利用单位（纯领域对象）。开联单只关心它状态是否正常、能接哪些类别、
- * 落在哪个省，因此这里只承载联单校验用到的字段。
+ * 落在哪个省；签收时还要盯住它的许可余量 —— 累计已接收加上这趟实收，
+ * 不该盖过许可上限，别让一家厂接爆了。
  */
 @Getter
 @Setter
@@ -20,6 +24,12 @@ public class TreatmentUnit {
 
     /** 所在省份（跨省判定用）。 */
     private String province;
+
+    /** 许可经营重量上限（千克）。 */
+    private BigDecimal licensedWeight;
+
+    /** 累计已接收重量（千克，签收一笔往上加一笔）。 */
+    private BigDecimal receivedWeight;
 
     /** 可处置类别代码，逗号分隔（如 HW08,HW09）。 */
     private String disposes;
@@ -43,5 +53,18 @@ public class TreatmentUnit {
             }
         }
         return false;
+    }
+
+    /**
+     * 许可余量把关：累计已接收 + 这趟实收不得盖过许可上限，超了就不许签收，
+     * 先把额度腾出来再说。这是应用层的先行校验；并发下的硬闸在仓储侧条件更新。
+     */
+    public void requireLicenseHeadroom(BigDecimal incomingWeight) {
+        BigDecimal incoming = incomingWeight == null ? BigDecimal.ZERO : incomingWeight;
+        BigDecimal licensed = licensedWeight == null ? BigDecimal.ZERO : licensedWeight;
+        BigDecimal received = receivedWeight == null ? BigDecimal.ZERO : receivedWeight;
+        if (received.add(incoming).compareTo(licensed) > 0) {
+            throw new BizException("处置单位许可余量不足，无法签收");
+        }
     }
 }

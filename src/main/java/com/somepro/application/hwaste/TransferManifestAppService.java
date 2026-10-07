@@ -19,7 +19,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
- * 电子转移联单用例编排（应用层）：提交 → 审批 / 退回，以及详情与多条件翻页。
+ * 电子转移联单用例编排（应用层）：提交 → 审批 / 退回 → 启运 → 签收，以及详情与多条件翻页。
  *
  * 提交一道道过门槛（规则落在领域对象，这里只做编排）：
  * 1. 产废单位、危废类别、处置单位都得真实存在；
@@ -32,6 +32,14 @@ import java.time.LocalDate;
  *
  * 审批只走一道：已提交才能批 / 退，退回必须写明理由；已批过、退过、作废的不再来回审，
  * 由领域状态机与仓储条件更新（仅 SUBMITTED 生效）双道兜底。
+ *
+ * 启运只认已审批：APPROVED 才启得动，落 IN_TRANSIT 并记下启运时刻；
+ * 还在提交、被退回、已走完的单子启不动，仓储条件更新（仅 APPROVED 生效）兜底。
+ *
+ * 签收只认在途：IN_TRANSIT 才签得了，落 RECEIVED 并记下签收时刻。
+ * 签收重量认实际过磅的数，不拿申报量硬顶；处置单位的许可余量两道把关 ——
+ * 这里先拿单位快照过一道（requireLicenseHeadroom），仓储侧再用条件更新原子加码，
+ * 累计已接收 + 这趟实收盖过许可上限就整单回滚，先把额度腾出来再签。
  */
 @Service
 public class TransferManifestAppService {
@@ -114,6 +122,34 @@ public class TransferManifestAppService {
         return load(manifestId, manifestNo).flatMap(manifest -> {
             manifest.reject(reason);
             return transferManifestRepository.reject(manifest);
+        });
+    }
+
+    /** 启运：已审批 → 运输中，记下启运时刻；还在提交、被退回、已走完的单子启不动。 */
+    public Mono<TransferManifest> depart(Long manifestId, String manifestNo) {
+        return load(manifestId, manifestNo).flatMap(manifest -> {
+            manifest.depart();
+            return transferManifestRepository.depart(manifest);
+        });
+    }
+
+    /**
+     * 签收：运输中 → 已签收，记下签收时刻。
+     * 重量认实际过磅的 actualWeight（跟申报量对不齐也照实收落账）；
+     * 处置单位许可余量不够就挡回去，先把额度腾出来再签。
+     */
+    public Mono<TransferManifest> receive(Long manifestId, String manifestNo, BigDecimal actualWeight) {
+        if (actualWeight == null || actualWeight.signum() <= 0) {
+            return Mono.error(new BizException("签收重量必须大于 0"));
+        }
+        return load(manifestId, manifestNo).flatMap(manifest -> {
+            manifest.receive(actualWeight);
+            return treatmentUnitRepository.findById(manifest.getUnitId())
+                    .switchIfEmpty(Mono.error(new BizException("处置单位不存在")))
+                    .flatMap(unit -> {
+                        unit.requireLicenseHeadroom(actualWeight);
+                        return transferManifestRepository.receive(manifest, actualWeight);
+                    });
         });
     }
 

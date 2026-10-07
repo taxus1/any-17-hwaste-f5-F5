@@ -18,6 +18,8 @@ public record TransferManifestVO(
         String transporter,
         BigDecimal transferWeight,
         Integer crossProvince,
+        LocalDateTime transportBegin,
+        LocalDateTime receiveAt,
         String status,
         LocalDateTime createTime) implements Serializable {
 }
