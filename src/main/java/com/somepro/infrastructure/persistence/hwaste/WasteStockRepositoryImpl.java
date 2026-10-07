@@ -62,7 +62,7 @@ public class WasteStockRepositoryImpl extends BaseBlockingRepository implements 
     }
 
     @Override
-    public Mono<BigDecimal> transferOut(Long sourceId, String categoryCode, BigDecimal weightKg) {
+    public Mono<BigDecimal> transferOut(Long sourceId, String categoryCode, BigDecimal weightKg, Long manifestId) {
         return blocking(() -> bizNoService.inLock("WB", () -> txTemplate.execute(tx -> {
             List<WasteStockPO> batches = wasteStockMapper.selectList(Wrappers.<WasteStockPO>lambdaQuery()
                     .eq(WasteStockPO::getSourceId, sourceId)
@@ -83,16 +83,18 @@ public class WasteStockRepositoryImpl extends BaseBlockingRepository implements 
                 }
                 BigDecimal weight = batch.getWeightKg();
                 if (weight.compareTo(remaining) <= 0) {
-                    // 整批转出
+                    // 整批转出：盖上联单 id，处置确认时据此核销
                     remaining = remaining.subtract(weight);
                     WasteStockPO update = new WasteStockPO();
                     update.setId(batch.getId());
                     update.setStatus(StockStatus.TRANSFERRED.name());
+                    update.setManifestId(manifestId);
                     wasteStockMapper.updateById(update);
                 } else {
-                    // 部分转出：父批作废，拆出「转出部分」与「留存部分」两个子批，父批原记录保留
-                    insertChild(batch, remaining, StockStatus.TRANSFERRED);
-                    insertChild(batch, weight.subtract(remaining), StockStatus.IN_STOCK);
+                    // 部分转出：父批作废，拆出「转出部分」与「留存部分」两个子批，父批原记录保留。
+                    // 转出的那个子批盖联单 id，留存的子批继续在库、不挂联单。
+                    insertChild(batch, remaining, StockStatus.TRANSFERRED, manifestId);
+                    insertChild(batch, weight.subtract(remaining), StockStatus.IN_STOCK, null);
                     WasteStockPO update = new WasteStockPO();
                     update.setId(batch.getId());
                     update.setStatus(StockStatus.VOID.name());
@@ -202,7 +204,7 @@ public class WasteStockRepositoryImpl extends BaseBlockingRepository implements 
     }
 
     /** 拆分子批：继承父批的单位 / 类别 / 包装 / 入库时刻，parent_batch_id 指回父批。 */
-    private void insertChild(WasteStockPO parent, BigDecimal weight, StockStatus status) {
+    private void insertChild(WasteStockPO parent, BigDecimal weight, StockStatus status, Long manifestId) {
         WasteStockPO child = new WasteStockPO();
         child.setId(IdUtil.getSnowflakeNextId());
         child.setBatchNo(bizNoService.nextBatchNo());
@@ -212,6 +214,7 @@ public class WasteStockRepositoryImpl extends BaseBlockingRepository implements 
         child.setWeightKg(weight);
         child.setInAt(parent.getInAt());
         child.setStatus(status.name());
+        child.setManifestId(manifestId);
         child.setParentBatchId(parent.getId());
         wasteStockMapper.insert(child);
     }

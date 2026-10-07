@@ -61,8 +61,8 @@ public class StockAppService {
         });
     }
 
-    /** 联单转出：盘点冻结中的组合先挡回；在库不足也挡回。 */
-    public Mono<BigDecimal> transferOut(Long sourceId, String categoryCode, BigDecimal weightKg) {
+    /** 联单转出：盘点冻结中的组合先挡回；在库不足也挡回。manifestId 非空时批次盖上联单，供处置核销。 */
+    public Mono<BigDecimal> transferOut(Long sourceId, String categoryCode, BigDecimal weightKg, Long manifestId) {
         return Mono.defer(() -> {
             if (sourceId == null) {
                 return Mono.error(new BizException("产废单位不能为空"));
@@ -74,7 +74,7 @@ public class StockAppService {
                 return Mono.error(new BizException("转出重量必须大于 0"));
             }
             return rejectIfFrozen(sourceId, categoryCode.trim(), "联单转出")
-                    .then(wasteStockRepository.transferOut(sourceId, categoryCode.trim(), weightKg));
+                    .then(wasteStockRepository.transferOut(sourceId, categoryCode.trim(), weightKg, manifestId));
         });
     }
 

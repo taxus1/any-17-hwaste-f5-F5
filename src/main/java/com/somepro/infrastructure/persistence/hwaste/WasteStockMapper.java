@@ -5,6 +5,7 @@ import com.somepro.infrastructure.persistence.hwaste.po.WasteStockPO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.math.BigDecimal;
 
@@ -24,4 +25,13 @@ public interface WasteStockMapper extends BaseMapper<WasteStockPO> {
 
     @Select("SELECT MAX(batch_no) FROM t_waste_stock WHERE batch_no LIKE CONCAT(#{prefix}, '%') FOR UPDATE")
     String maxBatchNo(@Param("prefix") String prefix);
+
+    /**
+     * 库存核销：把指定联单转出时占用的批次从「已转出」核销成「已处置」。
+     * 只认 TRANSFERRED —— 重复核销时已是 DISPOSED，更新 0 行，天然幂等；
+     * VOID 是拆分后退出在库账的父批（货在子批上），不在核销范围。
+     */
+    @Update("UPDATE t_waste_stock SET status = 'DISPOSED' "
+            + "WHERE del_flag = 0 AND manifest_id = #{manifestId} AND status = 'TRANSFERRED'")
+    int disposeByManifest(@Param("manifestId") Long manifestId);
 }

@@ -47,12 +47,16 @@ public class StockController {
                 .map(Result::ok);
     }
 
-    /** 联单转出：按入库先后 FIFO 消化在库批次，不足整批的拆分子批。 */
+    /**
+     * 联单转出：按入库先后 FIFO 消化在库批次，不足整批的拆分子批。
+     * 传 manifestId 时这批货就挂在那张联单上（批次盖联单戳），该联单处置确认后批次跟着核销。
+     */
     @PostMapping("/transfer-out")
     public Mono<Result<TransferResultVO>> transferOut(@RequestParam(required = false) Long sourceId,
                                                       @RequestParam(required = false) String categoryCode,
-                                                      @RequestParam(required = false) BigDecimal weightKg) {
-        return stockAppService.transferOut(sourceId, categoryCode, weightKg)
+                                                      @RequestParam(required = false) BigDecimal weightKg,
+                                                      @RequestParam(required = false) Long manifestId) {
+        return stockAppService.transferOut(sourceId, categoryCode, weightKg, manifestId)
                 .map(transferred -> new TransferResultVO(sourceId, categoryCode, transferred))
                 .map(Result::ok);
     }

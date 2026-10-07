@@ -23,8 +23,10 @@ public interface WasteStockRepository {
     /**
      * 联单转出：按入库先后 FIFO 消化在库批次，不足整批的拆分子批。
      * 在库合计不足时抛业务异常；返回实际转出重量。
+     * manifestId 非空时，被消化的批次（含拆出的子批）都盖上该联单 id，
+     * 处置确认时据此核销；为空表示不挂联单的手工转出。
      */
-    Mono<BigDecimal> transferOut(Long sourceId, String categoryCode, BigDecimal weightKg);
+    Mono<BigDecimal> transferOut(Long sourceId, String categoryCode, BigDecimal weightKg, Long manifestId);
 
     /**
      * 拆分：把一个在库批次按重量拆成若干子批，父批置 VOID 退出在库账。
